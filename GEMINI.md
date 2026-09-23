@@ -20,7 +20,7 @@ Rhythm, techniques, notation, tuning, tempo and MusicXML are out of scope. Don't
 
 - Models: `claude-sonnet-5` reads every note, then `claude-opus-5` re-reads only the notes where the model and the local template reader disagree. Keep model IDs in one config constant, not scattered through the code.
 - Use structured output (a JSON schema or tool use) and validate every response against it. Reject any response with an extra, missing or duplicate blob ID.
-- Temperature 0. The prompt text and schema live in versioned files under `src/prompts/`.
+- Don't set temperature: `claude-sonnet-5` and `claude-opus-5` reject it. Set effort from a config constant, and rely on the call cache for repeatable results. The prompt text and schema live in versioned files under `src/prompts/`.
 - Cache every call in `cache/<video id>/`, keyed by a hash of the image, prompt version, model and schema. A rerun must never repeat a call that already succeeded.
 - Log tokens and cost per video. Print the total at the end of each run.
 - Tests never call the API. They use recorded responses in `tests/fixtures/`. Re-record fixtures only on purpose, and say so in the change.
@@ -32,6 +32,12 @@ Rhythm, techniques, notation, tuning, tempo and MusicXML are out of scope. Don't
 - Report these metrics: fret accuracy (right fret on the right string), note recall and precision, x-position error as a fraction of row width, flag rate, and how many flags were real errors.
 - Any change to a prompt, model or threshold needs before and after numbers. Don't merge a regression on any metric without saying so.
 - Test videos are stored locally, not in git. Ground truth and metrics results are committed.
+
+## One video at a time
+
+- Work targets one video at a time (the current iteration in PLAN.md). Build only what that video needs.
+- Never add per-video code paths. A video's only special inputs are CLI flags saved in `tests/truth/<video id>.args`.
+- Every video that already passes is a regression test. Before a change lands, rerun `eval.py` on all of them. If the new video's fix breaks an old one, look for a more general rule instead of a special case.
 
 ## Code conventions
 

@@ -2,58 +2,51 @@
 
 Which tab videos video_to_sheet can turn into a tab sheet. This file tracks what [PLAN.md](PLAN.md) describes and what has been tested. Update it whenever the pipeline, its thresholds or the test results change.
 
-**Status:** planned, not yet implemented. The plan was revised after review: frames are sampled at 12 fps, change is measured with playheads excluded, overlaps are removed only when playhead activity supports it, two-digit frets are joined, and scrolling is anchored on bar lines. Build order: the test set and evaluation come first, then paginated videos with `--crop`, then horizontal scrolling and automatic tab-area detection (step 4). Nothing below has been verified on real videos yet.
-**Last updated:** 2026-09-22
+**Status:** planned, not yet implemented. The tool is built one video at a time, and it only supports what the videos so far have needed. Iteration 1 (`mhmDGhkUZt4`) is in progress. The plan covers paged-strip videos like it. Everything else is refused for now. Nothing below has been verified by a pipeline run yet.
+**Last updated:** 2026-09-23
 
 A video will work only if it meets **all** of these conditions.
 
 ## Required
 
-1. **Paginated or horizontally scrolling layout.**
-   - *Paginated:* the tab sits still, then changes to the next page with a hard cut or a short crossfade. Each page has to stay still for at least 1 second. The 0.25 s trimmed from each end leaves at least 6 frames at 12 fps for the median.
-   - *Horizontal scrolling:* the tab slides sideways at a steady rate. This is planned for build step 4. The tab has to contain bar lines, because they are used to line up the strips.
-2. **One tab area at a fixed position.** You give its location with `--crop`, or the tool finds it automatically (build step 4). It can't move, zoom or change size.
-3. **Six-line tab rows**, evenly spaced. Several rows per page are fine.
-4. **Bar lines drawn across the full height of the six lines.**
-5. **Moving elements that cover any pixel less than half the time.** This includes playheads, bouncing balls and flashing notes. Thin vertical playheads are also used to tell overlaps from genuine repeats.
-6. **Readable resolution.** 1080p in practice.
-7. **Downloadable with `yt-dlp`, or a local file.** Age-restricted, members-only and private videos aren't covered.
+1. **Paged-strip layout** (`--layout paged-strip`). The song is one long line of tab shown a screen at a time. Each screen stays still and then changes to the next with a hard cut or a short crossfade. Every screen shows the music at the same scale and height. Each screen starts a little before the previous one ended, overlapping it by at least 8% of the tab-area width, so the screens can be stitched into one line. The tab may fade out towards the screen edges.
+2. **Each screen still for at least 1 second.** 0.25 s is trimmed from each end, and at least 5 frames must remain for the median.
+3. **One tab area at a fixed position, given with `--crop`.** It can't move, zoom or change size. Anything else inside the crop, such as camera video, must stay still while a screen is shown.
+4. **Exactly one six-line tab row per screen,** with evenly spaced lines.
+5. **A light background.**
+6. **Bar lines drawn straight across all six lines.**
+7. **Playheads and highlights that cover any pixel less than half of a screen's time.**
+8. **Readable resolution.** 1080p in practice. Iteration 1's line spacing is 17.7 px.
+9. **Downloadable with `yt-dlp` as H.264, or a local file OpenCV can decode.** Age-restricted, members-only and private videos aren't covered.
 
-## Handled correctly
+## Handled correctly (planned)
 
-- Dark or light backgrounds.
-- Notation, rhythm stems and chord names around the tab: ignored.
-- Double and repeat bar lines: merged into one bar line.
-- Pages that repeat the previous page's last 1–4 measures: removed when the playhead shows them played on only one page. With no playhead, both copies are kept and flagged.
-- Riffs and whole pages that genuinely repeat.
-- Static pages with no playhead.
+- Notation staves, chord names and chord diagrams above the tab: ignored.
+- Camera video outside the tab area: kept out with `--crop`.
+- A playhead line, and notes that change colour only while they play: removed by the median over each screen.
+- Screens that overlap and fade at their edges: stitched into one line, keeping the clear copy of the overlap, so shared music appears once.
 - Two-digit fret numbers: their digits are joined into one number.
-- A "TAB" label or first-row indent: positions are measured from each row's first bar line.
+- Chords.
+- Arpeggio marks crossing the strings: dropped.
+- A bracket, clef or "TAB" label at the start: positions are measured from the row's origin.
+- Double and final bar lines: merged into one bar line.
 
 ## Not output
 
 The PDF has fret numbers, the six lines and bar lines only. Rhythm, techniques (h, p, slides, bends, vibrato), notation, tuning, tempo, chord diagrams and lyrics are left out.
 
-## Not supported
+## Not supported yet
 
-- Vertical scrolling scores.
-- Tab that moves on screen: panning, zooming, or picture-in-picture layouts that shift.
-- Tabs with other than 6 lines (bass, 7-string).
-- Paginated pages still for less than 1 second.
-- Page changes with animations longer than a short crossfade, unless each page still has more than a second of stable frames.
-- Notes that stay coloured once played.
-- Highlights that cover most of the page for most of the time.
-- Several parts, unless they form a single top-to-bottom sequence of rows.
-
-## Might work, depending on thresholds
-
-- Heavy compression artifacts.
-- A guitarist's camera overlay partly covering the tab.
-- Handwritten or unusual fonts.
-- Very thin bar lines.
+Each of these is refused with a reason until a test video needs it.
+- Paginated videos with several tab rows per screen, or with screens that don't continue one line.
+- Horizontally scrolling tab.
+- Dark backgrounds.
+- Running without `--crop` and `--layout`.
+- Vertical scrolling, tab that pans or zooms, tabs with other than 6 lines, several parts.
+- Notes that stay coloured once played, or highlights that cover most of a screen most of the time.
 
 ## Tested videos
 
 | Video | Layout | Result | Notes |
 | --- | --- | --- | --- |
-| _none yet_ | | | |
+| `mhmDGhkUZt4` | paged strip | examined, pipeline not built yet | 3 screens with 228 and 302 px overlaps; tab strip above camera video; chord diagrams and notation above the tab; playhead with note highlights; frets up to 13; arpeggio marks. Run with `--crop 0,0,1920,484 --layout paged-strip`. |
