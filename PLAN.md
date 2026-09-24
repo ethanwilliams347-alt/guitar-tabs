@@ -43,14 +43,15 @@ URL: https://www.youtube.com/watch?v=mhmDGhkUZt4. 61 s at 29.97 fps, downloaded 
 - A white strip across the top 484 px of the frame holds, from top to bottom:
   - chord diagrams
   - a notation staff (5 lines, y ≈ 225–280)
-  - one tab row (6 lines at y ≈ 375, 393, 410, 428, 446 and 463, so line spacing `s` ≈ 17.7 px)
+  - one tab row (6 lines, each 2 px thick, with centroids at y = 374.5, 392.5, 409.5, 427.5, 445.5 and 462.5 on every page, so line spacing `s` = 17.60 px). An earlier version of this plan said `s` ≈ 17.7, but its own y-values give 17.6.
 
   Below the strip is live camera video of the guitarist, which changes in every frame.
-- **Layout: paged strip.** The song is one long line of tab, shown one screen at a time on 3 pages: 0–17.3 s, 17.45–36.9 s and 37.0–61 s. Pages change with a crossfade of about 0.15 s. Every page draws the music at the same scale and height. Each page starts a little before the previous one ended: page 2 is page 1 shifted left by 1692 px (228 px of overlap), and page 3 is page 2 shifted left by 1618 px (302 px of overlap). Where the music continues past an edge, the outer 80–100 px of the tab fades out.
-- An orange-red playhead line sweeps across each page, and the notes under it turn red while they play. Within a page, the median change per frame in the strip is 0.3% of pixels, and it never reaches 2%. A median over a page's frames removes both the playhead and the red highlights.
+- **Layout: paged strip.** The song is one long line of tab, shown one screen at a time on 3 pages. Stage 2 finds them at 0.00–17.25 s, 17.50–36.83 s and 37.08–60.92 s (sample times at 12 per second). Pages change with a crossfade that shows in 3 samples, so about 0.25 s. Every page draws the music at the same scale and height. Each page starts a little before the previous one ended: page 2 is page 1 shifted left by 1692 px (228 px of overlap), and page 3 is page 2 shifted left by 1618 px (302 px of overlap). Where the music continues past an edge, the outer 80–100 px of the tab fades out.
+- An orange-red playhead line sweeps across each page, and the notes under it turn red while they play. Within a page, the median change per sample in the strip is 0.48% of pixels on the 480-px copy, and the largest is 1.02%. The largest drift from a page's first sample is 0.87%. The crossfades reach 20–22%. A median over a page's frames removes both the playhead and the red highlights.
 - Frets from 0 to 13, including two-digit ones. Chords of up to 5 notes.
-- Arpeggio marks: a wavy vertical line with an arrowhead, crossing several strings.
-- The first page starts with a bracket, a clef and a "TAB" label, with no bar line at the left. The last page ends with a final double bar line.
+- Arpeggio marks: a thick (about 5 px) wavy vertical line with an arrowhead, crossing several strings. Its centre column is inked over the whole tab height, so on column coverage alone it looks like a bar line. Its coverage ramps up and down across x, while a bar line's has sharp edges.
+- The first page starts with a thick bracket (x ≈ 99–105), then a straight system start line (x ≈ 113) from the top of the staff to the bottom of the tab, where the tab lines begin, then a clef and a "TAB" label. The start line is found as a bar line and becomes the origin. The last page ends with a final double bar line.
+- Fret numbers blank the tab line behind them, so no tab line has an unbroken run longer than 1181 px, and string 2's longest run is 125–218 px.
 
 **Run with:** `--crop 0,0,1920,484 --layout paged-strip` (in `tests/truth/mhmDGhkUZt4.args`). The crop keeps the camera video out.
 
@@ -71,8 +72,10 @@ ingest → canvas → rows → notes → read → render
 ### 1. Ingest: `src/ingest.py`
 - **Input:** a YouTube URL or a local file. The video ID is the YouTube ID, or the file name without its extension.
 - **Download:** `yt-dlp`, video only, the best H.264 stream up to 1080p (`bv*[vcodec^=avc1][height<=1080]`), saved to `videos/<video id>.mp4`. H.264 is chosen because OpenCV can decode it without ffmpeg.
-- **Sampling:** take the frame nearest each multiple of 1/`SAMPLE_FPS` s, crop it to `--crop`, and convert it to grayscale. Only a copy downscaled to `MOTION_WIDTH_PX` wide is stored. Stage 2 rereads the full-resolution frames it needs straight from the video.
-- **Writes:** `meta.json` (source, fps, frame count, crop, sample times) and `motion.npy` (the downscaled frames).
+- **Sampling:** take the frame nearest each multiple of 1/`SAMPLE_FPS` s that falls inside the video, crop it to `--crop`, and convert it to grayscale. The video is decoded once, in order. If the video's frame rate is below `SAMPLE_FPS`, neighbouring samples share a frame. Only a copy downscaled to `MOTION_WIDTH_PX` wide is stored. Stage 2 rereads the full-resolution frames it needs straight from the video, by frame index.
+- **Local copy:** a URL whose `videos/<video id>.mp4` already exists isn't downloaded again.
+- **Writes:** `meta.json` (source, absolute video path, fps, frame count, frame size, crop, sample times and their frame indices) and `motion.npy` (the downscaled frames).
+- **Debug overlay:** `crop.png`, the first sampled frame with everything outside the crop darkened.
 - **Refuses:** a video that can't be decoded, or a crop outside the frame.
 
 ### 2. Canvas: `src/canvas.py`
@@ -82,8 +85,8 @@ ingest → canvas → rows → notes → read → render
   - `change(t) < STILL_FRAME_FRAC` for every sample, and
   - every sample differs from the run's first sample in fewer than `STILL_DRIFT_FRAC` of pixels. This catches slow crossfades.
 - A run shorter than `PAGE_MIN_STABLE_S` isn't a page. Trim `PAGE_TRIM_S` from each end.
-- The page image is the pixel-wise median of up to `MEDIAN_MAX_FRAMES` evenly spaced full-resolution frames from the trimmed run. A page with fewer than `MEDIAN_MIN_FRAMES` is refused.
-- Two consecutive pages whose images match (NCC ≥ `PAGE_MERGE_NCC`) are merged.
+- The page image is the pixel-wise median of up to `MEDIAN_MAX_FRAMES` evenly spaced full-resolution frames from the trimmed run. The video is decoded once for all pages. A page with fewer than `MEDIAN_MIN_FRAMES` is refused.
+- Two consecutive pages whose images match (NCC ≥ `PAGE_MERGE_NCC`) are merged. The merged page keeps both time ranges, and its median is taken again over frames from both, still at most `MEDIAN_MAX_FRAMES`.
 
 **Checks on each page:**
 - The median brightness must be at least `LIGHT_BG_MIN_LEVEL`, since dark backgrounds are refused for now.
@@ -91,23 +94,24 @@ ingest → canvas → rows → notes → read → render
 - The row's six line y-positions must match page 1's within `LINE_Y_MATCH_PX`.
 
 **Stitching** consecutive pages n and n+1:
-1. **Offset:** search the horizontal shifts at which the right part of page n lies on the left part of page n+1. Each shift must leave an overlap of at least `STRIP_MIN_OVERLAP_FRAC` of the page width. Score each shift by NCC over the tab-row band (top line − `s` to bottom line + `s`), skipping `STRIP_EDGE_SKIP_FRAC` of the width at each page edge, where the tab fades.
-2. **Accept or refuse:** the best shift must score at least `STRIP_NCC_MIN`. It must also beat the best shift more than `STRIP_RUNNER_UP_MIN_DIST_PX` away by `STRIP_NCC_MARGIN`. Bar lines in the overlap, found on each page by stage 3's bar-line finder, must line up within `STRIP_MAX_RESIDUAL_PX`. If any check fails, the video is refused with the scores.
+1. **Offset:** search the horizontal shifts at which the right part of page n lies on the left part of page n+1. Each shift must leave an overlap of at least `STRIP_MIN_OVERLAP_FRAC` of the page width. Score each shift by NCC over the tab-row band (top line − `s` to bottom line + `s`) across the whole overlap, faded edges included.
+   - An earlier version of this plan skipped 5% of the width at each page edge, where the tab fades. That fails on iteration 1. Near the smallest allowed overlap (154 px), the skips (2 × 96 px) leave a window of a few columns holding only plain tab lines, which match at almost any shift. Pair 2–3 then picked 1718 px (10 columns, NCC 1.000) with an equal runner-up, and was refused. With no skip, the fades lower the best NCC to 0.85–0.86, but both pairs are found with margins of 0.19 and 0.14. A minimum compared width would also have worked here, but plain-line windows about 40 px wide matched a wrong shift at NCC 0.978, and pair 1–2 has only 36 clear columns. If it fails, it would accept a wrong offset, so it was not chosen.
+2. **Accept or refuse:** the best shift must score at least `STRIP_NCC_MIN`. It must also beat the best shift more than `STRIP_RUNNER_UP_MIN_DIST_PX` away by `STRIP_NCC_MARGIN`. Bar lines in the overlap, found on each page by stage 3's bar-line finder, must line up within `STRIP_MAX_RESIDUAL_PX`. The residual is the largest distance from a bar line on one page to the nearest one on the other. It counts only bar lines inside both pages' row extents, since a bar line can't be found where one page's lines have faded away. If neither page has a bar line there, the pair is accepted on NCC alone and its residual is recorded as none. If only one page has one, the pair is refused. If any check fails, the video is refused with the scores.
 3. **Composite:** place the pages on one canvas. Where two pages overlap, each pixel is the darker of the two. Both pages show the same music there, and the faded copy is always the lighter one, so the clear copy is kept and overlapping music appears once.
 
 **Writes:**
 - `page_<n>.png`
 - `canvas.png`
-- `pages.json`: each page's times, frames used and canvas offset, plus each pair's offset, overlap, best and runner-up NCC, and bar-line residual
+- `pages.json`: each page's sample range, times, time ranges, frames used, row (from stage 3's finder) and canvas x (`canvas_x`), the canvas size, plus each pair's offset, overlap, best and runner-up NCC (with the runner-up's shift), the bar lines compared from each page and the bar-line residual (`null` when there are none)
 
-**Debug overlays:** the change plot with pages marked, each page image, the NCC-by-shift plot for each pair, and the overlaps with bar lines from both pages drawn in two colours.
+**Debug overlays:** the change plot (log scale) with pages and their trimmed ranges marked (`change.png`), each page image with its row overlay (`page_<n>_rows.png`), the NCC-by-shift plot for each pair (`ncc_<n>_<n+1>.png`), and each overlap as page n's copy, page n+1's copy and the composite, stacked, with bar lines from the two pages in red and blue (`overlap_<n>_<n+1>.png`).
 
 ### 3. Rows: `src/rows.py`
 Stage 2 also calls these functions on single pages.
-- **Lines:** binarize with Otsu. Open with a horizontal kernel `LINE_MIN_LEN_FRAC` of the image width long, then find line y-positions from the horizontal projection. Each line's y is the centroid of its thickness.
-- **Row:** a group of exactly 6 evenly spaced lines, with spacing within ±`LINE_SPACING_TOL_FRAC`. Other line groups are ignored, such as the 5-line notation staff and chord-diagram grids. The row stores its six line y-positions and its spacing `s`. The paged-strip layout needs exactly one row.
-- **Extent:** the row's left and right ends are the first and last columns where all six lines are present.
-- **Bar lines:** columns where ink covers at least `BARLINE_MIN_COVER_FRAC` of the span from the top line to the bottom line. Columns within `BARLINE_MERGE_FRAC × s` of each other are merged into one bar line at the group's centre, so a double bar line becomes one. A wavy arpeggio line is not straight, so it never covers enough of one column.
+- **Lines:** binarize with Otsu. A line is a run of pixel rows in which ink covers at least `LINE_MIN_COVER_FRAC` of the image width. Its y is the coverage-weighted centroid of those rows. There is no morphological opening: fret numbers break tab lines into pieces far shorter than half the width, so an opening would erase them. On iteration 1, line rows have 81–97% coverage and no other row has more than 38%.
+- **Row:** a group of exactly 6 consecutive, evenly spaced lines, with every gap within ±`LINE_SPACING_TOL_FRAC` of the mean gap and the gaps to the lines just outside the group not. Other line groups are ignored, such as the 5-line notation staff and chord-diagram grids. The row stores its six line y-positions and its spacing `s`. The paged-strip layout needs exactly one row.
+- **Extent:** the row's left and right ends are the first and last columns of the runs, at least `EXTENT_MIN_RUN_FRAC × s` long, where all six lines have ink. The minimum run stops a narrow vertical stroke that crosses all six lines, such as the bracket, from becoming the end.
+- **Bar lines:** inside the extent, runs of columns where ink covers at least `BARLINE_MIN_COVER_FRAC` of the span from the top line to the bottom line, and where both columns beside the run cover less than `BARLINE_EDGE_MAX_COVER_FRAC` (sharp edges). Runs within `BARLINE_MERGE_FRAC × s` of each other are merged into one bar line at the group's centre, so a double bar line becomes one. The edge test rejects arpeggios: on iteration 1, their centre columns reach 0.82–1.00 coverage, but the columns beside them have 0.63–0.88. The columns beside real bar lines have at most 0.36, where a digit sits next to the bar.
 - **Origin:** the first bar line if it lies within `s` of the left end of the row, or else the left end itself. Every x-position from here on is measured from the origin.
 - **Writes:** `rows.json` (line y-positions, `s`, extent, origin, bar-line x-positions).
 - **Debug overlay:** lines, extent, origin and bar lines drawn over the canvas.
@@ -159,7 +163,7 @@ Stage 2 also calls these functions on single pages.
   - the headline "X of Y numbers verified", numbers flagged, marks ignored and total cost
   - every automatic decision: page times, stitch offsets and scores, and any refusal
   - for every PDF row with a flag, the video image with its notes boxed, next to its redrawn version
-- **Writes:** `out/<video id>.pdf` (or `-o`), `tab.json` and `report.html`.
+- **Writes:** `out/<video id>.pdf` (or `-o`), and `tab.json` and `report.html` in `cache/<video id>/render/`.
 
 ## Configuration: `src/config.py`
 
@@ -177,16 +181,17 @@ All thresholds are named constants with their unit in the name: `_S` is seconds,
 | `MEDIAN_MAX_FRAMES` / `MEDIAN_MIN_FRAMES` | 31 / 5 | frames |
 | `PAGE_MERGE_NCC` | 0.98 | |
 | `LIGHT_BG_MIN_LEVEL` | 128 | median gray level |
-| `LINE_MIN_LEN_FRAC` | 0.5 | of image width |
+| `LINE_MIN_COVER_FRAC` | 0.5 | of image width, ink in one pixel row of a line |
 | `LINE_SPACING_TOL_FRAC` | 0.15 | of mean spacing |
 | `LINE_Y_MATCH_PX` | 1 | px between pages |
 | `STRIP_MIN_OVERLAP_FRAC` | 0.08 | of page width |
-| `STRIP_EDGE_SKIP_FRAC` | 0.05 | of page width |
 | `STRIP_NCC_MIN` / `STRIP_NCC_MARGIN` | 0.8 / 0.05 | |
 | `STRIP_RUNNER_UP_MIN_DIST_PX` | 5 | px |
 | `STRIP_MAX_RESIDUAL_PX` | 2 | px |
 | `BARLINE_MIN_COVER_FRAC` | 0.9 | of top-to-bottom line span |
 | `BARLINE_MERGE_FRAC` | 0.5 | of `s` |
+| `BARLINE_EDGE_MAX_COVER_FRAC` | 0.5 | of top-to-bottom line span, in each column beside a bar line |
+| `EXTENT_MIN_RUN_FRAC` | 1.0 | of `s`, shortest run of all six lines that can end a row |
 | `MARK_MIN_H_FRAC` / `MARK_MAX_H_FRAC` | 0.4 / 1.2 | of `s` |
 | `MARK_MAX_DY_FRAC` | 0.4 | of `s` |
 | `DIGIT_JOIN_OVERLAP_FRAC` | 0.7 | of the smaller mark's height |
@@ -196,6 +201,8 @@ All thresholds are named constants with their unit in the name: `_S` is seconds,
 | `TEMPLATE_SIZE_PX` / `TEMPLATE_MIN_SAMPLES` | 32 / 3 | |
 | `TEMPLATE_CLASS_MIN_NCC` / `TEMPLATE_MATCH_MIN_NCC` / `TEMPLATE_MARGIN_NCC` | 0.8 / 0.85 / 0.05 | |
 | `MATCH_X_TOL_FRAC` | 0.01 | of tab-area width (eval matching) |
+| `EVAL_MIN_*` / `EVAL_MAX_*` | see Evaluation | the pass-bar targets |
+| `REVIEW_*` | | layout of the review images (string gap, margins, font scales) |
 | `MODELS` | `{"read": "claude-sonnet-5", "reread": "claude-opus-5"}` | the only place model IDs appear |
 | `READ_EFFORT` | `{"read": "medium", "reread": "high"}` | |
 | `PRICES_USD_PER_MTOK` | Sonnet 5: 2 in / 10 out; Opus 5: 5 in / 25 out | |
@@ -203,6 +210,7 @@ All thresholds are named constants with their unit in the name: `_S` is seconds,
 ## Evaluation: `eval.py`
 
 - **Ground truth:** `tests/truth/<video id>.json`, in the `tab.json` format but holding only string, x and fret per note.
+- **Which videos:** every video with both `tests/truth/<video id>.args` and `.json`. `eval.py` runs the pipeline on `videos/<video id>.mp4` (or the YouTube URL if it isn't downloaded) with the saved args, then compares `cache/<video id>/render/tab.json` with the truth. It exits non-zero if any video misses a target.
 - **Matching:** a predicted note matches a true note on the same string within `MATCH_X_TOL_FRAC` of the tab-area width (19 px here, under half the closest note spacing). Pairs are matched one to one, nearest first.
 - **Metrics per video:**
 
@@ -218,7 +226,7 @@ All thresholds are named constants with their unit in the name: `_S` is seconds,
 
   Unflagged errors is the most important number, because it counts the errors a user won't catch. Every video must meet every target on its own.
 - **Output:** a table per video, and `tests/results/<date>.json`, which is committed.
-- **Review images:** `python eval.py --review <video id>` writes `cache/<video id>/review/part_<n>.png`. Each image is one tab-area width of the canvas, with the predicted numbers drawn under it at their x-positions, flagged ones in red and each with its note ID. If there is no truth file yet, it also writes a draft from `tab.json`.
+- **Review images:** `python eval.py --review <video id>` writes `cache/<video id>/review/part_<n>.png`. Each image is one tab-area width of the canvas, with the predicted numbers drawn under it at their x-positions, flagged ones in red and each with its note ID. If there is no truth file yet, it also writes a draft from `tab.json` to `tests/truth/<video id>.draft.json`. The draft is never written to the truth path, so an unchecked draft can't be evaluated as truth. It is renamed to `<video id>.json` once confirmed.
 - **Correcting the truth:** every note is checked against the review image, not only the flagged ones, because a draft makes it easy to accept what is already there. Claude may propose corrections from the review images, but Ethan confirms the file before it is committed.
 - **Limits of the x metric:** the true x-positions start as the pipeline's own, so on iteration 1 the x metric catches only positions a person moved by eye. Exact positions are proven by the unit tests on synthetic images. In later iterations, the x metric catches regressions.
 
@@ -232,11 +240,11 @@ Each step ends with its checkpoint met and its unit tests passing.
 3. **Ingest.**
    - Checkpoint: 732 samples of 484 × 1920, `meta.json` correct.
 4. **Rows on a single page:** line and row finding, extent, bar lines, origin.
-   - Checkpoint: on each page image, 6 lines at y ≈ 375–463, `s` ≈ 17.7, the staff and chord diagrams ignored, and the bar-line count equals a count by eye.
+   - Checkpoint: on each page image, 6 lines at y ≈ 375–463, `s` ≈ 17.6, the staff and chord diagrams ignored, and the bar-line count equals a count by eye.
 5. **Pages.**
-   - Checkpoint: exactly 3 pages at ≈ 0–17.3, 17.45–36.9 and 37.0–61 s, and page images with no playhead or red highlights left.
+   - Checkpoint: exactly 3 pages at ≈ 0–17.3, 17.45–36.9 and 37.0–61 s, and page images with no playhead or red highlights left. Measured: 0.00–17.25, 17.50–36.83 and 37.08–60.92 s. A colour median of the same frames has 0 reddish pixels, against 289–3665 in single frames.
 6. **Stitching.**
-   - Checkpoint: offsets 1692 ± 1 and 1618 ± 1, bar-line residual ≤ 2 px, a canvas about 5230 px wide, and no doubled or faded notes in the overlaps (checked in the overlay).
+   - Checkpoint: offsets 1692 ± 1 and 1618 ± 1, bar-line residual ≤ 2 px, a canvas about 5230 px wide, and no doubled or faded notes in the overlaps (checked in the overlay). Measured: offsets 1692 and 1618, NCC 0.851 and 0.857, runner-ups 0.662 (at 1546) and 0.715 (at 1256). Residual: none for pair 1–2, whose overlap has no bar line inside both row extents (page 2's bar line at 199.5 lands at 1891.5 on page 1, past page 1's extent end at 1881), and 0.5 px for pair 2–3. Canvas 5230 × 484. The overlaps show every note once, at full darkness. Each page's first and last video columns are light gray (218 and 200, against an Otsu ink threshold of 152), so a faint line shows on the canvas at each page's edge. It is not ink to any stage.
 7. **Rows on the canvas.**
    - Checkpoint: one row, the origin at the left end of the lines, and every bar line found once, including the final double bar.
 8. **Notes.**
@@ -254,13 +262,14 @@ Each step ends with its checkpoint met and its unit tests passing.
 ## Unit tests
 
 Tests use synthetic images and never call the API. Model responses come from recorded files in `tests/fixtures/`, which are re-recorded only on purpose and noted in the change.
-- **Pages:** three still pages joined by 0.15 s crossfades, with a thin red line sweeping each page, give 3 pages, and their medians contain no red line. A slow drift is not taken for a page.
+- **Pages:** three still pages joined by 0.15 s crossfades, with a thin red line sweeping each page, give 3 pages, and their medians contain no red line. A slow drift, whose change per sample stays under `STILL_FRAME_FRAC`, is not taken for a page. Two runs of the same page split by a short flash merge. Too few frames, a dark page, a page with 0 or 2 rows, and lines that move between pages are refused.
 - **Stitching:**
   - A long synthetic strip cut into 3 overlapping windows with faded edges gives the exact offsets, and a composite equal to the strip within 1 gray level away from the fades.
+  - An overlap with no bar line in it is accepted on NCC, with its residual recorded as none. A bar line moved 4 px on one page is refused.
   - An overlap that is too small is refused.
   - A strip with a repeating pattern is refused on the runner-up margin.
-- **Rows:** a 6-line row is found next to a 5-line staff and chord-diagram grids, with exact y-positions.
-- **Bar lines:** they are found, a wavy line is not, a double bar merges into one, and the origin falls on the left end when there is no bar line there.
+- **Rows:** a 6-line row is found next to a 5-line staff and chord-diagram grids, with y-positions within 0.01 px, even when fret numbers break every line into short pieces. Seven evenly spaced lines, or six uneven ones, are not a row.
+- **Bar lines:** they are found at their exact centres. A thick wavy arpeggio whose centre column is fully inked is not. A double bar merges into one, and a bracket left of the lines is neither a bar line nor the row's end. The origin falls on a start line when there is one, and on the left end when there isn't.
 - **Notes:**
   - Line erasure keeps digits that cross a line.
   - "10" and "12" are joined, but chord notes on neighbouring strings are not.
@@ -275,8 +284,8 @@ Tests use synthetic images and never call the API. Model responses come from rec
 ## Project layout
 
 ```
-main.py  eval.py  requirements.txt
-src/  config.py cache.py ingest.py canvas.py rows.py notes.py read.py render.py
+main.py  eval.py  requirements.txt  pytest.ini
+src/  __init__.py (the Refused exception)  config.py cache.py ingest.py canvas.py rows.py notes.py read.py render.py
       prompts/read_v1.md  prompts/read_v1.schema.json
       schema/tab.schema.json
 tests/  test_*.py  videos.md  fixtures/  truth/<id>.json  truth/<id>.args  results/

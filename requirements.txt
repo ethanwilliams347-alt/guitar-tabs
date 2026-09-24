@@ -1,0 +1,7 @@
+yt-dlp==2026.8.19
+opencv-python==5.0.0.93
+numpy==2.5.3
+anthropic==1.8.0
+jsonschema==4.26.0
+reportlab==5.0.1
+pytest==9.1.1

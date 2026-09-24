@@ -1,0 +1,16 @@
+{
+ "video_id": "handmade",
+ "tab_width_px": 1000,
+ "notes": [
+  {"string": 1, "x": 100, "fret": 0},
+  {"string": 2, "x": 100, "fret": 1},
+  {"string": 3, "x": 200, "fret": 2},
+  {"string": 1, "x": 300, "fret": 3},
+  {"string": 4, "x": 400, "fret": 10},
+  {"string": 5, "x": 500, "fret": 12},
+  {"string": 6, "x": 600, "fret": 5},
+  {"string": 2, "x": 700, "fret": 7},
+  {"string": 3, "x": 800, "fret": 9},
+  {"string": 1, "x": 900, "fret": 0}
+ ]
+}

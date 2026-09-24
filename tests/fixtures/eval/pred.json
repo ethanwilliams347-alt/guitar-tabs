@@ -1,0 +1,16 @@
+{
+ "video_id": "handmade",
+ "tab_width_px": 1000,
+ "notes": [
+  {"id": 1, "string": 1, "x": 102, "fret": 0, "status": "verified"},
+  {"id": 2, "string": 2, "x": 100, "fret": 1, "status": "verified"},
+  {"id": 3, "string": 3, "x": 205, "fret": 2, "status": "verified"},
+  {"id": 4, "string": 1, "x": 300, "fret": 8, "status": "verified"},
+  {"id": 5, "string": 4, "x": 399, "fret": 10, "status": "flagged"},
+  {"id": 6, "string": 5, "x": 500, "fret": 13, "status": "flagged"},
+  {"id": 7, "string": 5, "x": 600, "fret": 5, "status": "verified"},
+  {"id": 8, "string": 3, "x": 815, "fret": 9, "status": "verified"},
+  {"id": 9, "string": 1, "x": 900, "fret": 0, "status": "verified"},
+  {"id": 10, "string": 1, "x": 950, "fret": 4, "status": "flagged"}
+ ]
+}

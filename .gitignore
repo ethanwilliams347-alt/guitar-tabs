@@ -1,4 +1,6 @@
 .venv/
 videos/
 cache/
+out/
 __pycache__/
+.pytest_cache/

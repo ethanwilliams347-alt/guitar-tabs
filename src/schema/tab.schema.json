@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tab.schema.json",
+  "title": "video_to_sheet tab",
+  "description": "One video's tab: every PDF and metric is computed from this. Ground truth files use the same format with only string, x and fret per note. x is in canvas pixels, measured from the row origin.",
+  "type": "object",
+  "required": ["video_id", "tab_width_px", "notes"],
+  "additionalProperties": false,
+  "properties": {
+    "video_id": {"type": "string", "minLength": 1},
+    "tab_width_px": {"type": "number", "exclusiveMinimum": 0, "description": "width of the tab area in the video (the crop width)"},
+    "row": {
+      "type": "object",
+      "required": ["origin_x", "extent", "s", "line_y", "bar_x"],
+      "additionalProperties": false,
+      "properties": {
+        "origin_x": {"type": "number", "description": "canvas x of the origin"},
+        "extent": {"type": "array", "items": {"type": "number"}, "minItems": 2, "maxItems": 2, "description": "canvas x of the row's left and right ends"},
+        "s": {"type": "number", "exclusiveMinimum": 0, "description": "line spacing in px"},
+        "line_y": {"type": "array", "items": {"type": "number"}, "minItems": 6, "maxItems": 6, "description": "canvas y of each line, string 1 (high e) first"},
+        "bar_x": {"type": "array", "items": {"type": "number"}, "description": "bar-line x, measured from the origin"}
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["string", "x", "fret"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "integer", "minimum": 0},
+          "string": {"type": "integer", "minimum": 1, "maximum": 6, "description": "1 = high e"},
+          "x": {"type": "number"},
+          "fret": {"type": "integer", "minimum": 0, "maximum": 24},
+          "status": {"enum": ["verified", "flagged"]},
+          "readers": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "model": {"type": ["integer", "null"], "minimum": 0, "maximum": 24},
+              "template": {"type": ["integer", "null"], "minimum": 0, "maximum": 24},
+              "reread": {"type": ["integer", "null"], "minimum": 0, "maximum": 24}
+            }
+          }
+        }
+      }
+    }
+  }
+}
