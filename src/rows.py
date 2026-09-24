@@ -3,13 +3,18 @@
 Stage 2 calls analyze() on single pages; the stage itself runs it on the canvas.
 All x and y values are image pixels; the row's x-positions downstream are measured
 from its origin.
+
+Writes: rows.json (line y-positions and spans, s, extent, origin, bar-line x-positions and spans).
+Debug: rows.png (lines, extent, bar lines and origin over the canvas).
 """
+import json
+
 import cv2
 import numpy as np
 
-from src import config
+from src import Refused, config
 
-STAGE_VERSION = 1
+STAGE_VERSION = 2
 
 
 def binarize(gray):
@@ -89,13 +94,13 @@ def barline_cover(ink, row):
 
 
 def find_barlines(ink, row, extent):
-    """x-positions of bar lines inside the extent.
+    """Column spans [first, last] of bar lines inside the extent.
 
     A bar line is a run of columns covering at least BARLINE_MIN_COVER_FRAC of the span,
     with sharp edges: both columns beside the run cover less than BARLINE_EDGE_MAX_COVER_FRAC.
     An arpeggio's thick wavy stroke can fill its centre column, but its coverage ramps up and
     down, so its edges fail. Runs within BARLINE_MERGE_FRAC * s of each other merge into one
-    bar line at the group's centre (a double bar line becomes one).
+    bar line spanning the whole group (a double bar line becomes one). Its x is the span's centre.
     """
     cover = barline_cover(ink, row)
     left, right = extent
@@ -114,7 +119,7 @@ def find_barlines(ink, row, extent):
             merged[-1][1] = b
         else:
             merged.append([a, b])
-    return [(a + b) / 2 for a, b in merged]
+    return merged
 
 
 def find_origin(bar_x, extent, s):
@@ -133,13 +138,15 @@ def analyze(gray):
         extent = row_extent(ink, row)
         if extent is None:
             continue
-        bars = find_barlines(ink, row, extent)
+        spans = find_barlines(ink, row, extent)
+        bars = [(a + b) / 2 for a, b in spans]
         rows.append({
             "line_y": row["line_y"],
             "line_spans": [[ln["y0"], ln["y1"]] for ln in row["lines"]],
             "s": row["s"],
             "extent": list(extent),
             "bar_x": bars,
+            "bar_spans": spans,
             "origin_x": find_origin(bars, extent, row["s"]),
         })
     return rows
@@ -164,3 +171,27 @@ def draw_overlay(gray, rows):
         cv2.putText(img, f"s={row['s']:.2f} bars={len(row['bar_x'])} origin={row['origin_x']:.1f}",
                     (max(left, 5) + 12, top - 34), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 0, 200), 1, cv2.LINE_AA)
     return img
+
+
+def inputs(ctx):
+    return [ctx.dir("canvas") / "canvas.png"]
+
+
+def params(ctx):
+    names = ["LINE_MIN_COVER_FRAC", "LINE_SPACING_TOL_FRAC", "BARLINE_MIN_COVER_FRAC", "BARLINE_MERGE_FRAC",
+             "BARLINE_EDGE_MAX_COVER_FRAC", "EXTENT_MIN_RUN_FRAC"]
+    return {n: getattr(config, n) for n in names}
+
+
+def run(ctx):
+    out = ctx.dir("rows")
+    canvas = cv2.imread(str(ctx.dir("canvas") / "canvas.png"), cv2.IMREAD_GRAYSCALE)
+    found = analyze(canvas)
+    if ctx.debug:
+        cv2.imwrite(str(out / "debug" / "rows.png"), draw_overlay(canvas, found))
+    if len(found) != 1:
+        raise Refused(f"the canvas has {len(found)} tab rows; the paged-strip layout needs exactly one")
+    row = found[0]
+    (out / "rows.json").write_text(json.dumps(row, indent=1))
+    print(f"[rows] 1 row: s = {row['s']:.2f} px, extent {row['extent'][0]}-{row['extent'][1]}, "
+          f"origin {row['origin_x']:.1f}, {len(row['bar_x'])} bar lines")

@@ -1,6 +1,10 @@
+import json
+
+import cv2
 import pytest
 
-from src import config, rows
+from src import Refused, config, rows
+from src.cache import Context
 from tests import synth
 
 # Line y is a coverage-weighted centroid. Digit pixels that land on a line's rows shift it
@@ -87,3 +91,27 @@ def test_overlay_draws():
     img, _ = synth.tab_page()
     out = rows.draw_overlay(img, rows.analyze(img))
     assert out.shape == img.shape + (3,)
+
+
+def run_stage(tmp_path, canvas_img):
+    ctx = Context(source="v.mp4", video_id="v", root=tmp_path, debug=True)
+    cv2.imwrite(str(ctx.dir("canvas") / "canvas.png"), canvas_img)
+    (ctx.dir("rows") / "debug").mkdir()
+    rows.run(ctx)
+    return ctx.dir("rows")
+
+
+def test_stage_writes_one_row_of_a_long_canvas(tmp_path):
+    img, truth = synth.tab_page(w=5230, line_x1=5140, bars=(600, 1306, 1891, 3426, 4756),
+                                final_double=5120)
+    out = run_stage(tmp_path, img)
+    row = json.loads((out / "rows.json").read_text())
+    assert row["line_y"] == pytest.approx(truth["line_y"], abs=Y_TOL_PX)
+    assert row["origin_x"] == pytest.approx(truth["left"] + 0.5)
+    assert row["bar_x"] == pytest.approx(truth["bar_x"])      # each once, the final double bar as one
+    assert (out / "debug" / "rows.png").exists()
+
+
+def test_stage_refuses_canvas_without_one_row(tmp_path):
+    with pytest.raises(Refused, match="0 tab rows"):
+        run_stage(tmp_path, synth.blank(w=3000))

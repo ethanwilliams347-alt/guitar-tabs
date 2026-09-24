@@ -1,0 +1,76 @@
+{
+ "role": "read",
+ "model": "gemini-3.5-flash",
+ "thinking_level": "MEDIUM",
+ "prompt_version": 1,
+ "attempt": 0,
+ "ids": [
+  131,
+  132,
+  133,
+  134,
+  135,
+  136,
+  137,
+  138,
+  139,
+  140,
+  141,
+  142,
+  143,
+  144,
+  145,
+  146,
+  147,
+  148,
+  149,
+  150,
+  151,
+  152,
+  153,
+  154,
+  155,
+  156,
+  157,
+  158,
+  159,
+  160,
+  161,
+  162
+ ],
+ "response": {
+  "candidates": [
+   {
+    "content": {
+     "parts": [
+      {
+       "text": "{\"notes\":[{\"id\":131,\"fret\":9},{\"id\":132,\"fret\":10},{\"id\":133,\"fret\":10},{\"id\":134,\"fret\":9},{\"id\":135,\"fret\":8},{\"id\":136,\"fret\":8},{\"id\":137,\"fret\":9},{\"id\":138,\"fret\":8},{\"id\":139,\"fret\":8},{\"id\":140,\"fret\":8},{\"id\":141,\"fret\":8},{\"id\":142,\"fret\":7},{\"id\":143,\"fret\":8},{\"id\":144,\"fret\":6},{\"id\":145,\"fret\":8},{\"id\":146,\"fret\":8},{\"id\":147,\"fret\":7},{\"id\":148,\"fret\":6},{\"id\":149,\"fret\":6},{\"id\":150,\"fret\":8},{\"id\":151,\"fret\":6},{\"id\":152,\"fret\":4},{\"id\":153,\"fret\":5},{\"id\":154,\"fret\":5},{\"id\":155,\"fret\":4},{\"id\":156,\"fret\":4},{\"id\":157,\"fret\":4},{\"id\":158,\"fret\":6},{\"id\":159,\"fret\":4},{\"id\":160,\"fret\":6},{\"id\":161,\"fret\":5},{\"id\":162,\"fret\":5}]}",
+       "thought_signature": "EroNCrcNAWkUfRMYAmLLqk1wDQGRvRowg6sdsLW4BtlD2LWfx2-TaWBVRbmnKO-TWl6o2M7CrJOdGWgsjOaAlcdyNbdVDKf53mWSOH8zJhlUJH8PLxPLwnZ2hp2Q0oujhInjEP_qs6yE8D7Rz90D31yvBUQMBFlCjDrZGt_hxc_tWT6PIN9QS_KACXu-0BUhxm8BDco-q0HX00JXK81hL4k_h61pb4nI_zjkQtpBzGWRr2gEElh8G0uYHdgnNAcB8y0WyCgggKQTMqTlXZvRiLrf05CJM8Gm58VNjyTK9U-3HC5dfehsZBiDcrb13yRre3J5tkHtxbWV7JFt0h4v-ZPwsCMEDZNjVnBdFfpemoSR1Kcqex0gY5qpgjJjPLr-uIYiviVEDiawfo_j_1N5ryNrzitAn9OLWu4j40s4_iCkA5Fisc-rkxWm7HPggCbziNtqKQAVCbnpNRAfMjVA5gmYQ4fhwcdZA7AnxmeNfG7txfwfWLTubPnZ1KTRtK5IyI_I4vL4E2GlU6KjVrNNV_uXBmsJyNBqniQaf2fYfWAlDungI-sWDlSOkm2sdYWRRkAv-Q2noYZ12IbacPwNQ6Y4h99__HhvhmXewxJSEh6xC40fkqEG0ckTPK55yLavChjkavD8VIgvgGF6zGoCf-2M6XAt34ZeDgAX6Z5PxcW8wl-Dghbl_dwuJ7iNE3mgFfQoFo395Pug01Nk9MJH70CwjzNIpI3mzlwIr_Ysf2I_E0gDiuikJx4aOcG3hQTmhX-TNV0054xCdyl43aYuXO6NA_54c9mnmghIXrWadp1NX-ByGH8d_oN7kkSG2oEEptyuWShlUQVGYKAbm6iAiwx2MWCl2pVHYZQFPmI76wCobwuQFNUnzJTUNaYtk83NH-pzMOrBq6XOn_1Nv6obliJVXjqHj-z5fLVNI8LFwAd9oJW0a_veluEMo7Y2BVDuWtmFEuEaHySUVtwxPqv39kBRF7v-evC_qAINOJZcDvpgDJPcshdlj38nKXSfyIcqFCO0kFJRlvj7Q51RBHQpCvmN8OjO2IqwfrO3tm3x8MqFHZ8roX96DGblD85q_Occ_J2ecZQpyNWKloZA_Brn842WBXVyROldwp4J4JncZ-T-toYBNjZ3KwngtyoyqLiIBmlKFDN-DVPzhXC9ayJ3wg_gj-yPeaOGOn-qHE_osXBudFUvSIrP87396-boHUGXbMmJ-YuhvO5pScRU5QvIyNdvw34SS5PGQRonCc8EbbcSLCLma4fFDbxvOi-PUqGsi3K7udTjDi3D8wJJmik4QvvGJEgVP3PL_h_Qg2OZpgOmgw5iNtTLevsmUbLxAezIu_GiMKJnhPGhrUJISqwEfjl6mHbzemtAESvC58nP3tkE_CZc7cGR9oKvSIXdPpK6oRfQYOL4qcON-IF38VC1jAH7Zptk9JeG0l8GJiFHYT_19emdwDofDEDxvSiuTZYUfEXcW6uQHPui_XRSB8iMGFedQfblH64C9zX8p9Snus1jQNxfRtzDrjo1JZ5tCw0mshGhFigtKRopcO7RbnKfSaBq04cfsf3ylqpqW2Us5XwkFyXagC9MtFTDXgA5Vc26njjJkJH19WKNolrjAtp1m1DBwgu0QFidmzjMG371twqdRA63kmXaVTPTMrHqizdMDEim6dYD4BSuTS1qJggfaiQQfQVm0nLB3ecE60EDb9_oDpmgAVT3g7YBWNasLJOA5RPq96ikBTIrDSqGAnHOLUBpRgmpmKLNokLF3U9SSRrertm2BxW66McE3-URPDw0gue4cJWkimESrhrgUxMd_l5zGdOSJDCIQTwiafmTcclfvaJdgx4YFXbPk1OUr62sVBTGjYBn_7NiVAACf92BlwWTI-z5ruyEKdw3u7-Nut_061l9iSfdOhZh7B3gY1URSH0F0e3SVmLRJeq-CCOaVyUjlFrR_JACh2RbCGQYGBjdw3nEc_aWVV6DCjtXxPFv9e0zt7kScscQnZffcontQFdD9ctH7jMZccUYukkHMLMRPq6J_eF5MUSPMFssyd7RMUzWK6VjTOuuyBXBRmLHmWbffEhTaLuPbH0L8a0UlsmOaxK9J1ReGm7heIXTaWxNTCnS3in0fiL_51m8ONsKvbGKaDUm5AmV6BQpR2QHx836zZ2qJoZJ6v8Ta7lXE1Gz29EzBOEyDrIIw4KwmU3xZWX2CSFXHMm7SSxpJgHRT5ajTWkODjZwPZ5zTSAnVeMqSKkQ8aTMMSNby4udBoH6r3FLPIj5b6ijtQoMFY3XskgGaSYuuEMEcjdn3gM5"
+      }
+     ],
+     "role": "model"
+    },
+    "finish_reason": "STOP",
+    "index": 0
+   }
+  ],
+  "model_version": "gemini-3.5-flash",
+  "response_id": "7bS0arC1CcLOjMcP-cDxuQs",
+  "usage_metadata": {
+   "candidates_token_count": 357,
+   "prompt_token_count": 1489,
+   "prompt_tokens_details": [
+    {
+     "modality": "IMAGE",
+     "token_count": 1104
+    },
+    {
+     "modality": "TEXT",
+     "token_count": 385
+    }
+   ],
+   "thoughts_token_count": 915,
+   "total_token_count": 2761
+  }
+ }
+}

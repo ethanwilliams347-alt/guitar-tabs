@@ -5,6 +5,7 @@ unchanged is skipped. --stage <name> reruns just that stage.
 """
 import argparse
 import importlib
+import json
 import shutil
 import sys
 
@@ -34,6 +35,8 @@ def build_parser():
     p.add_argument("--debug", action="store_true", help="write an overlay for every decision")
     p.add_argument("-o", "--output", help="PDF path (default out/<video id>.pdf)")
     p.add_argument("--paper", choices=PAPERS, default="letter")
+    p.add_argument("--record-fixtures", action="store_true",
+                   help="copy the model calls used to tests/fixtures/read/<video id>/ (re-record only on purpose)")
     return p
 
 
@@ -73,14 +76,27 @@ def run_stage(name, ctx, force=False):
     mark_done(out, key)
 
 
+def print_cost(ctx):
+    """The video's total model cost, from every call its readings used, cached or not."""
+    path = ctx.dir("read") / "cost.json"
+    if path.exists():
+        cost = json.loads(path.read_text())
+        print(f"Model cost for {ctx.video_id}: ${cost['total_usd']:.4f} over {len(cost['calls'])} calls "
+              f"(${cost['new_usd']:.4f} new when the read stage last ran)")
+
+
 def main(argv=None):
     args = build_parser().parse_args(argv)
     try:
         check_inputs(args)
         ctx = Context(source=args.source, video_id=video_id(args.source), crop=args.crop,
-                      layout=args.layout, debug=args.debug, output=args.output, paper=args.paper)
-        for name in [args.stage] if args.stage else STAGES:
-            run_stage(name, ctx, force=bool(args.stage))
+                      layout=args.layout, debug=args.debug, output=args.output, paper=args.paper,
+                      record_fixtures=args.record_fixtures)
+        try:
+            for name in [args.stage] if args.stage else STAGES:
+                run_stage(name, ctx, force=bool(args.stage))
+        finally:
+            print_cost(ctx)
     except Refused as e:
         print(f"REFUSED: {e}", file=sys.stderr)
         return 2

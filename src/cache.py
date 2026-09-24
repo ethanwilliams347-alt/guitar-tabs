@@ -86,6 +86,7 @@ class Context:
     debug: bool = False
     output: str = None
     paper: str = "letter"
+    record_fixtures: bool = False  # copy the model calls used to tests/fixtures/read/<video id>/
     root: Path = None            # cache root; None means cache/
 
     def dir(self, stage):

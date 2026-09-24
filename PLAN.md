@@ -113,31 +113,42 @@ Stage 2 also calls these functions on single pages.
 - **Extent:** the row's left and right ends are the first and last columns of the runs, at least `EXTENT_MIN_RUN_FRAC × s` long, where all six lines have ink. The minimum run stops a narrow vertical stroke that crosses all six lines, such as the bracket, from becoming the end.
 - **Bar lines:** inside the extent, runs of columns where ink covers at least `BARLINE_MIN_COVER_FRAC` of the span from the top line to the bottom line, and where both columns beside the run cover less than `BARLINE_EDGE_MAX_COVER_FRAC` (sharp edges). Runs within `BARLINE_MERGE_FRAC × s` of each other are merged into one bar line at the group's centre, so a double bar line becomes one. The edge test rejects arpeggios: on iteration 1, their centre columns reach 0.82–1.00 coverage, but the columns beside them have 0.63–0.88. The columns beside real bar lines have at most 0.36, where a digit sits next to the bar.
 - **Origin:** the first bar line if it lies within `s` of the left end of the row, or else the left end itself. Every x-position from here on is measured from the origin.
-- **Writes:** `rows.json` (line y-positions, `s`, extent, origin, bar-line x-positions).
+- **Writes:** `rows.json` (line y-positions and pixel-row spans, `s`, extent, origin, bar-line x-positions and column spans). Stage 4 uses the spans to clear the lines.
 - **Debug overlay:** lines, extent, origin and bar lines drawn over the canvas.
 
 ### 4. Notes: `src/notes.py`
-- **Line-free image:** clear each string line (its y ± half its thickness). Keep columns where the pixels just above and below the line are both ink, because a digit crosses the line there. Clear bar lines the same way.
+- **Line-free image:** clear each string line (its pixel rows from stage 3). Keep columns where the pixels just above and below the line are both ink, because a digit crosses the line there. Clear bar lines the same way, widened by `BARLINE_CLEAR_PAD_PX` on each side. A bar line's anti-aliased edge column is partly ink. On iteration 1, one such column (next to the bar line at 2246.5) left a 1 px wide, 17 px tall sliver on string 5, which was taken for a note.
 - **Marks:** connected components of the line-free image. A mark is kept if:
   - its height is between `MARK_MIN_H_FRAC × s` and `MARK_MAX_H_FRAC × s`, and
   - its centre is within `MARK_MAX_DY_FRAC × s` of a string line.
 
-  It is assigned to that string. Marks that are too tall (arpeggio lines) or lie between strings are dropped. Leftovers such as the "TAB" letters and arrowheads are kept here, and stage 5 reads them as "not a number".
+  It is assigned to that string. Marks that are too tall (arpeggio lines) or lie between strings are dropped. Any leftovers that pass are kept here, and stage 5 reads them as "not a number". On iteration 1 there are none. The "TAB" letters (24–25 px tall) and the arrowheads (joined to their arpeggio lines) are dropped as too tall, and the marks dropped as too short are the dots where bar lines cross string lines, plus 1 px noise.
 - **Joining:** on the same string, marks whose vertical extents overlap by at least `DIGIT_JOIN_OVERLAP_FRAC` and whose horizontal gap is under `DIGIT_JOIN_GAP_FRAC × w` are one note. Here `w` is the median mark width in the video. Each note keeps its digit boxes.
 - **Position:** the centre of the note's bounding box, relative to the origin, in canvas pixels. This is the position used in the PDF.
-- **Writes:** `notes.json` (ID, string with 1 = high e, x, bounding box, digit boxes) and the line-free image.
-- **Debug overlay:** every kept mark boxed and coloured by string, dropped marks in grey, joins drawn as brackets.
+- **Writes:** `notes.json` (ID from 0 in order of x, string with 1 = high e, x, bounding box, digit boxes, and every dropped mark with its box and reason: short, tall or off line) and `line_free.png`. A row with no notes is refused.
+- **Debug overlay:** `notes.png`, the tab band with every kept mark boxed and coloured by string, dropped marks in grey, and joins drawn as brackets.
 
 ### 5. Read: `src/read.py`
 **Model reader.**
 - Crop each note with `CROP_PAD_FRAC × s` of padding from the canvas (not the line-free image). Scale each crop to `GRID_CELL_H_PX` high.
-- Lay out up to `GRID_MAX_CELLS` crops per image in a grid. Each cell's ID is printed in a margin outside the crop, so it can't be mistaken for a digit.
-- Send each grid to `MODELS["read"]` (`claude-sonnet-5`) with the prompt `src/prompts/read_v<N>.md`. Request structured output that follows the schema `src/prompts/read_v<N>.schema.json`: one entry per ID, `{"id": int, "fret": 0–24 or null}`, where `null` means "not a number".
-- **Validate every response:** the schema, plus the ID set, which must be exactly the grid's IDs with none missing, extra or duplicated. An invalid response is requested once more. If it fails again, every note in that grid is flagged.
-- **Settings:** effort `READ_EFFORT["read"]`. No temperature: these models reject it. Repeatable results come from the cache.
-- **Refusal:** a refusal (`stop_reason == "refusal"`) is treated like an invalid response. There is no fallback to another model, because that would silently change which model read the notes.
-- **Cache:** `cache/<video id>/read/calls/<key>.json`, where the key is a hash of the grid PNG bytes, prompt version, schema version, model ID and effort.
-- **Cost:** token counts from each response's `usage`, priced with `PRICES_USD_PER_MTOK`, logged per call in `cost.json` and printed as a total at the end of the run.
+- Lay out the crops in grids, `GRID_COLS` to a grid row, in ID order. The notes are split into as few grids as `GRID_MAX_CELLS` allows, with sizes as even as possible (163 notes give 33, 33, 33, 32 and 32). Each crop sits in a grey frame, with its ID printed in blue as `#<id>` in a strip above the frame, so the ID can't be mistaken for a digit.
+- Send each grid to `MODELS["read"]` (`gemini-3.8-flash`, temporarily `gemini-3.5-flash`: see below) through the Gemini API (`google-genai`, `models.generate_content`, which keeps nothing on Google's side, unlike the Interactions API, which stores requests by default). The prompt `src/prompts/read_v<N>.md` is the system instruction, and the grid's IDs are listed in the message after the image. Request JSON output (`response_mime_type` and `response_json_schema`) that follows the schema `src/prompts/read_v<N>.schema.json`: `{"notes": [{"id": int, "fret": 0–24 or null}, ...]}`, where `null` means "not a number". The same schema file is used to check each response locally. The prompt asks for a best reading when a number is hard to read, since the template reader checks every reading, and for `null` only when there is no number.
+- **Validate every response:** the prompt must not be blocked, there must be one candidate whose finish reason is `STOP`, and its answer text (thought parts left out) must be JSON that passes the schema, and the ID set must be exactly the grid's IDs with none missing, extra or duplicated. An invalid response is requested once more, up to `READ_MAX_ATTEMPTS` calls. If every attempt fails, every note in that grid has no model reading and is flagged.
+- **Settings:** thinking level `READ_THINKING_LEVEL["read"]` (these models can't turn thinking off), `READ_MAX_TOKENS` as `max_output_tokens`. Temperature is left at the model's default. Repeatable results come from the cache.
+- **Refusal:** a blocked prompt, or a finish reason other than `STOP` (such as `SAFETY`, `PROHIBITED_CONTENT` or `MAX_TOKENS`), is treated like an invalid response. There is no fallback to another model, because that would silently change which model read the notes.
+- **API errors:** the SDK retries 408, 429 and 5xx up to `API_RETRY_ATTEMPTS` tries in all. It doesn't retry unless it is told to. The first wait is `API_RETRY_INITIAL_DELAY_S`, doubling each time up to the SDK's 60 s cap (about 15, 30, 60 and 60 s). With the SDK's own 1 s start, the waits added up to 15 s, which on iteration 1 wasn't enough to outlast the free tier's 5-requests-per-minute quota. If a call still fails, the run stops with the error, and the next run carries on from the cache. The error is not turned into flags.
+- **Cache:** `cache/<video id>/read/calls/<key>.json`, where the key is a hash of the grid PNG bytes, the prompt version, the prompt text and schema, the model ID, thinking level, `READ_MAX_TOKENS` and the attempt number. Invalid responses are cached too, so a rerun gives the same result without calling again.
+- **Cost:** token counts from each response's `usage_metadata`, with thinking tokens counted as output because they are billed as output, priced with `PRICES_USD_PER_MTOK`, logged per call in `cost.json` with whether the call was new. `main.py` prints the video's total at the end of every run, even when the read stage is skipped as up to date.
+- **Fixtures:** `--record-fixtures` copies every call the run uses to `tests/fixtures/read/<video id>/`. Re-record only on purpose, and say so in the change.
+- **Temporary model choice (from 2026-09-24):** `MODELS["read"]` is `gemini-3.5-flash` instead of `gemini-3.8-flash`, because 3.8 Flash was overloaded. It isn't a fault in our requests:
+  - On 2026-09-24, 3.8 Flash returned `503 UNAVAILABLE` ("This model is currently experiencing high demand") on nearly every request over several runs. Only 2 of iteration 1's 5 grids got through.
+  - Even a one-line text prompt with no image, schema or thinking setting was rejected, within 0.1–1.7 s, before the model started work. 3.7 Flash failed the same way.
+  - The same grid 2 request, with the same settings, succeeded on 3.7 Flash and 3.5 Flash, and every probe of 3.5 Flash succeeded.
+  - Google's developer forum has reports of the same 503s on 3.7 and 3.8 Flash from 2026-09-15 on, including paid accounts. Google staff call it temporary overload.
+
+  3.8 Flash stays the intended reader. It is newer and cheaper (0.75 / 3.75 against 1.50 / 9.00 per million tokens until 2026-12-31). No accuracy comparison was possible, since there was no ground truth yet. An automatic fallback on 503 was rejected, because it would mix models within one read.
+
+  **To switch back:** once a one-line request to `gemini-3.8-flash` succeeds several times in a row, set `MODELS["read"]` back to it. Then rerun the read stage with `--record-fixtures`, which re-reads every grid because the model is part of the cache key, and rerun `eval.py`. Record the before and after numbers, and delete this note, the comment in `config.py` and the "Temporary" line in CLAUDE.md and GEMINI.md.
 
 **Template reader** (local, no API calls).
 - For each digit 0–9, the template is the pixel-wise median of the single-digit crops the model read as that digit. Each crop is binarized and scaled to `TEMPLATE_SIZE_PX`. A template needs at least `TEMPLATE_MIN_SAMPLES` crops.
@@ -147,12 +158,12 @@ Stage 2 also calls these functions on single pages.
 
 **Decision per note.**
 - **Verified:** both readers give the same fret, and the number of digits matches the digit boxes.
-- **Disagreement, or no template result:** all such notes are re-read in one grid by `MODELS["reread"]` (`claude-opus-5`), with the same schema, validation and cache, at effort `READ_EFFORT["reread"]`. The note is verified if Opus agrees with the template reader. Otherwise it is flagged and shows Opus's reading, or the template's if Opus returned `null`.
+- **Disagreement, or no template result:** all such notes are re-read in one grid by `MODELS["reread"]` (`gemini-3.1-pro-preview`), with the same schema, validation and cache, at thinking level `READ_THINKING_LEVEL["reread"]`. The note is verified if the re-read agrees with the template reader. Otherwise it is flagged and shows the re-read, or the template's reading if the re-read returned `null`.
 - **Model `null` and no template match:** dropped, and counted in the report as "N marks ignored".
 
-**Writes:** `read.json` (each reader's result, the final fret and the status of every note), `cost.json` and the grid images.
+**Writes:** `read.json` (each reader's result, the final fret and the status of every note, and each grid's IDs, validity and errors), `cost.json` and the grid images sent to the model (`grids/grid_<role>_<n>.png`, always written, since they are the calls' inputs).
 
-**Debug overlays:** the grids and the template sheet.
+**Debug overlays:** the template sheet. The grids above show each note's crop under its ID.
 
 ### 6. Render: `src/render.py`
 - **`tab.json`:** the video ID, the tab-area width, one canvas row (origin, extent, `s`, bar lines), and its notes (ID, string, x, fret, status, both readers' results). Every PDF and metric is computed from this file. Its schema is `src/schema/tab.schema.json`.
@@ -192,20 +203,25 @@ All thresholds are named constants with their unit in the name: `_S` is seconds,
 | `BARLINE_MERGE_FRAC` | 0.5 | of `s` |
 | `BARLINE_EDGE_MAX_COVER_FRAC` | 0.5 | of top-to-bottom line span, in each column beside a bar line |
 | `EXTENT_MIN_RUN_FRAC` | 1.0 | of `s`, shortest run of all six lines that can end a row |
+| `BARLINE_CLEAR_PAD_PX` | 1 | px cleared beside a bar line's span |
 | `MARK_MIN_H_FRAC` / `MARK_MAX_H_FRAC` | 0.4 / 1.2 | of `s` |
 | `MARK_MAX_DY_FRAC` | 0.4 | of `s` |
 | `DIGIT_JOIN_OVERLAP_FRAC` | 0.7 | of the smaller mark's height |
 | `DIGIT_JOIN_GAP_FRAC` | 0.35 | of median mark width |
 | `CROP_PAD_FRAC` | 0.3 | of `s` |
-| `GRID_MAX_CELLS` / `GRID_CELL_H_PX` | 40 / 64 | |
+| `GRID_MAX_CELLS` / `GRID_CELL_H_PX` / `GRID_COLS` | 40 / 64 / 8 | cells per grid / px / cells per grid row |
+| `GRID_LABEL_H_PX` / `GRID_GAP_PX` / `GRID_LABEL_FONT_SCALE` | 20 / 8 / 0.5 | ID strip above each crop / white space around each frame |
+| `READ_PROMPT_VERSION` | 1 | `src/prompts/read_v<N>.*` |
+| `READ_MAX_TOKENS` / `READ_MAX_ATTEMPTS` | 16000 / 2 | `max_output_tokens` per call / calls per grid |
 | `TEMPLATE_SIZE_PX` / `TEMPLATE_MIN_SAMPLES` | 32 / 3 | |
 | `TEMPLATE_CLASS_MIN_NCC` / `TEMPLATE_MATCH_MIN_NCC` / `TEMPLATE_MARGIN_NCC` | 0.8 / 0.85 / 0.05 | |
 | `MATCH_X_TOL_FRAC` | 0.01 | of tab-area width (eval matching) |
 | `EVAL_MIN_*` / `EVAL_MAX_*` | see Evaluation | the pass-bar targets |
 | `REVIEW_*` | | layout of the review images (string gap, margins, font scales) |
-| `MODELS` | `{"read": "claude-sonnet-5", "reread": "claude-opus-5"}` | the only place model IDs appear |
-| `READ_EFFORT` | `{"read": "medium", "reread": "high"}` | |
-| `PRICES_USD_PER_MTOK` | Sonnet 5: 2 in / 10 out; Opus 5: 5 in / 25 out | |
+| `MODELS` | `{"read": "gemini-3.8-flash", "reread": "gemini-3.1-pro-preview"}`, with `read` temporarily `gemini-3.5-flash` | the only place model IDs appear |
+| `READ_THINKING_LEVEL` | `{"read": "MEDIUM", "reread": "HIGH"}` | Gemini `thinking_level` |
+| `API_RETRY_ATTEMPTS` / `API_RETRY_INITIAL_DELAY_S` | 5 / 15 | tries per call, the first included / s before the first retry, doubling to at most 60 |
+| `PRICES_USD_PER_MTOK` | 3.8 Flash: 0.75 in / 3.75 out (to 2026-12-31, then 1.50 / 7.50); 3.5 Flash: 1.50 / 9.00; 3.1 Pro preview: 2 in / 12 out | output includes thinking |
 
 ## Evaluation: `eval.py`
 
@@ -246,12 +262,13 @@ Each step ends with its checkpoint met and its unit tests passing.
 6. **Stitching.**
    - Checkpoint: offsets 1692 ± 1 and 1618 ± 1, bar-line residual ≤ 2 px, a canvas about 5230 px wide, and no doubled or faded notes in the overlaps (checked in the overlay). Measured: offsets 1692 and 1618, NCC 0.851 and 0.857, runner-ups 0.662 (at 1546) and 0.715 (at 1256). Residual: none for pair 1–2, whose overlap has no bar line inside both row extents (page 2's bar line at 199.5 lands at 1891.5 on page 1, past page 1's extent end at 1881), and 0.5 px for pair 2–3. Canvas 5230 × 484. The overlaps show every note once, at full darkness. Each page's first and last video columns are light gray (218 and 200, against an Otsu ink threshold of 152), so a faint line shows on the canvas at each page's edge. It is not ink to any stage.
 7. **Rows on the canvas.**
-   - Checkpoint: one row, the origin at the left end of the lines, and every bar line found once, including the final double bar.
+   - Checkpoint: one row, the origin at the left end of the lines, and every bar line found once, including the final double bar. Measured: one row with lines at y = 374.5–462.5, `s` = 17.60, extent 113–5132, and the origin on the start line at 113.5. 18 bar lines, each found once. That is page 1's 6, page 2's 6 and page 3's 7, less the one in the second overlap that both pages 2 and 3 find (3425.5 and 3426.0 mapped to the canvas). The first overlap's bar line (1891.5), which page 1 misses in its fade, is found, and the final double bar is found once at 5126.0. The row finder needed no changes for the canvas. The stage refuses a canvas without exactly one row.
 8. **Notes.**
-   - Checkpoint: in the overlay, no note missed or split in 3 measures checked by eye (including one with two-digit frets and one chord), and arpeggio lines dropped.
+   - Checkpoint: in the overlay, no note missed or split in 3 measures checked by eye (including one with two-digit frets and one chord), and arpeggio lines dropped. Measured: 163 notes, 42 of them two-digit, and no mark outside the 13–17 px note height. Measure 1 (5-note chord with a 10) has 14 notes, measure 8 (all two-digit chord) 13 and measure 14 (11s and a 4-note chord) 12, each matching a count by eye with nothing missed or split. All 7 arpeggios are dropped as too tall, along with the bracket and the 3 "TAB" letters. Before `BARLINE_CLEAR_PAD_PX` was added, a bar line's anti-aliased edge was also found as a note (164).
 9. **Model reader:** prompt and schema v1, grids, validation, the call cache, the cost log, and fixtures recorded with `--record-fixtures`.
    - Checkpoint: a second run makes no API calls, and the cost is printed. The expected cost is under $1 per video.
-10. **Template reader and decision,** including the Opus re-read.
+   - Measured with `gemini-3.5-flash` at thinking level MEDIUM (see "Temporary model choice" in stage 5): 5 calls, each valid on the first attempt. 163 notes read as 163 numbers, 0 as "not a number". 7,317 input and 5,314 output tokens (thinking included), $0.0588 at paid-tier prices, and $0 on the free tier the key is on. A second run, made with no API key set so that any call would have failed, made 0 new calls and printed the cost. The 5 responses are recorded in `tests/fixtures/read/mhmDGhkUZt4/`. All 163 readings match a check by eye against the grid images. This is a spot check, not verification. `gemini-3.8-flash` read the first 2 grids before it became unavailable and agreed with 3.5 Flash on all 66 notes. The 5 grids for iteration 1 (33, 33, 33, 32 and 32 notes, 744–792 × 400–500 px) were checked by eye: each crop is framed under its ID, with only cut-off pieces of neighbouring strings' numbers at the frame edges. The reader was first built for Claude, then switched to the Gemini API on 2026-09-24 before any call was made. Schema v1 was changed in place to use `minimum` and `maximum` for the fret range, since Gemini supports them and no response had been recorded with the old schema. At 3.8 Flash's prices, 5 calls should cost a few cents. Each image is about 750 × 450 px, and thinking is billed as output.
+10. **Template reader and decision,** including the re-read by `MODELS["reread"]`.
     - Checkpoint: the template sheet looks right, and every note has a status.
 11. **Render and report.**
     - Checkpoint: the PDF rows start at bar lines, the numbers sit on the right lines, and the report lists the stitch decisions.
@@ -274,9 +291,13 @@ Tests use synthetic images and never call the API. Model responses come from rec
   - Line erasure keeps digits that cross a line.
   - "10" and "12" are joined, but chord notes on neighbouring strings are not.
   - x-positions are exact.
+  - An arpeggio and a mark centred between strings are dropped, and a bar line's partly inked edge column leaves no mark.
 - **Reader:**
   - Responses with a missing, extra or duplicate ID, or a fret outside 0–24, are rejected.
-  - The cache key changes with the prompt version, model or effort.
+  - A refusal, a response cut off at `max_tokens`, and a response that isn't JSON are rejected.
+  - A blocked prompt and every finish reason other than `STOP` are rejected, and thought parts are never read as the answer.
+  - The cache key changes with the image, prompt version, prompt text, schema, model, thinking level or attempt.
+  - The stage reads every note, a second run makes no calls, an invalid response is requested once more, and a grid that fails twice leaves its notes unread.
   - The template reader uses leave one out.
 - **Render:** a canvas x maps to a PDF x by the one scale factor, and rows are cut at bar lines.
 - **Eval:** matching and metrics on constructed cases.
@@ -294,8 +315,8 @@ videos/  cache/  out/  .venv/        (git-ignored)
 
 ## Dependencies
 
-- `yt-dlp`, `opencv-python`, `numpy`, `anthropic`, `jsonschema`, `reportlab`, `pytest`. ffmpeg isn't needed.
-- The API needs `ANTHROPIC_API_KEY`, or an `ant auth login` profile.
+- `yt-dlp`, `opencv-python`, `numpy`, `google-genai`, `jsonschema`, `reportlab`, `pytest`. ffmpeg isn't needed.
+- The API needs `GEMINI_API_KEY` (or `GOOGLE_API_KEY`), from Google AI Studio.
 
 ## Iterations
 
