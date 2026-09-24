@@ -27,11 +27,13 @@
         "type": "object",
         "required": ["string", "x", "fret"],
         "additionalProperties": false,
+        "if": {"properties": {"fret": {"type": "null"}}},
+        "then": {"required": ["status"], "properties": {"status": {"const": "flagged"}}},
         "properties": {
           "id": {"type": "integer", "minimum": 0},
           "string": {"type": "integer", "minimum": 1, "maximum": 6, "description": "1 = high e"},
           "x": {"type": "number"},
-          "fret": {"type": "integer", "minimum": 0, "maximum": 24},
+          "fret": {"type": ["integer", "null"], "minimum": 0, "maximum": 24, "description": "null only on a flagged note that no reader could read; drawn as ?"},
           "status": {"enum": ["verified", "flagged"]},
           "readers": {
             "type": "object",

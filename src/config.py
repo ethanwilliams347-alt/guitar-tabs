@@ -61,17 +61,26 @@ TEMPLATE_MIN_SAMPLES = 3
 TEMPLATE_CLASS_MIN_NCC = 0.8
 TEMPLATE_MATCH_MIN_NCC = 0.85
 TEMPLATE_MARGIN_NCC = 0.05
-# "read" should be gemini-3.8-flash. It is gemini-3.5-flash only while 3.8 Flash is overloaded (503s since at
-# least 2026-09-15). Switch back once it answers reliably: see PLAN.md, stage 5, "Temporary model choice".
-MODELS = {"read": "gemini-3.5-flash", "reread": "gemini-3.1-pro-preview"}  # the only place model IDs appear
+# Both roles should be gemini-3.8-flash (the re-read at a higher thinking level). Both are gemini-3.5-flash
+# for now: 3.8 Flash is overloaded (503s since at least 2026-09-15), and gemini-3.1-pro-preview, the first
+# choice for the re-read, has no free-tier quota. See PLAN.md, stage 5, "Temporary model choice".
+MODELS = {"read": "gemini-3.5-flash", "reread": "gemini-3.5-flash"}  # the only place model IDs appear
 READ_THINKING_LEVEL = {"read": "MEDIUM", "reread": "HIGH"}  # Gemini thinking_level; these models can't turn it off
 API_RETRY_ATTEMPTS = 5           # tries per call, the first included, on 408, 429 and 5xx
 API_RETRY_INITIAL_DELAY_S = 15   # first wait, doubling to at most 60 s: outlasts a per-minute quota
 PRICES_USD_PER_MTOK = {          # Gemini API paid tier; output includes thinking tokens
     "gemini-3.5-flash": {"input": 1.50, "output": 9.00},
     "gemini-3.8-flash": {"input": 0.75, "output": 3.75},        # to 2026-12-31; 1.50 / 7.50 from 2027-01-01
-    "gemini-3.1-pro-preview": {"input": 2.0, "output": 12.0},   # prompts up to 200k tokens
 }
+
+# Stage 6: render
+RENDER_MARGIN_PT = 36            # page margin on every side; the tab-area width maps to the width inside it
+RENDER_STRING_GAP_PT = 7.0       # between drawn strings; vertical spacing is a free choice, horizontal is measured
+RENDER_ROW_GAP_PT = 22.0         # between PDF rows
+RENDER_FRET_FONT_PT = 6.5
+RENDER_TITLE_FONT_PT = 10
+RENDER_LINE_WIDTH_PT = 0.4
+REPORT_PAD_FRAC = 2.0            # of s, above and below the tab band in report images
 
 # Evaluation
 MATCH_X_TOL_FRAC = 0.01          # of tab-area width

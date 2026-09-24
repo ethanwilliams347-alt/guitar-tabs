@@ -204,7 +204,7 @@ def draw_review(canvas_gray, tab):
                 continue
             color = (0, 0, 220) if n.get("status") == "flagged" else (0, 0, 0)
             y = ys[n["string"] - 1]
-            text = str(n["fret"])
+            text = "?" if n["fret"] is None else str(n["fret"])
             (tw, th), _ = cv2.getTextSize(text, font, config.REVIEW_FRET_FONT_SCALE, 2)
             cv2.rectangle(img, (x - tw // 2 - 1, y - th // 2 - 1), (x + tw // 2 + 1, y + th // 2 + 1),
                           (255, 255, 255), -1)

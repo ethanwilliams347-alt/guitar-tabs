@@ -18,8 +18,8 @@ Rhythm, techniques, notation, tuning, tempo and MusicXML are out of scope. Don't
 
 ## Rules for model calls
 
-- Models: the Gemini API, through the `google-genai` SDK. `gemini-3.8-flash` reads every note, then `gemini-3.1-pro-preview` re-reads only the notes where the model and the local template reader disagree. Keep model IDs in one config constant, not scattered through the code.
-  - **Temporary:** the reader uses `gemini-3.5-flash` because `gemini-3.8-flash` has been overloaded, rejecting every request with a 503. Switch back to `gemini-3.8-flash` once it answers reliably. PLAN.md (stage 5, "Temporary model choice") says how to check and what to rerun.
+- Models: the Gemini API, through the `google-genai` SDK. `gemini-3.8-flash` reads every note, then re-reads, at a higher thinking level, only the notes where the model and the local template reader disagree. Keep model IDs in one config constant, not scattered through the code.
+  - **Temporary:** both the read and the re-read use `gemini-3.5-flash`, because `gemini-3.8-flash` has been overloaded, rejecting every request with a 503. Switch both back to `gemini-3.8-flash` once it answers reliably. PLAN.md (stage 5, "Temporary model choice") says how to check and what to rerun.
 - Use structured output (a JSON schema or tool use) and validate every response against it. Reject any response with an extra, missing or duplicate blob ID.
 - Don't set temperature: leave it at the model's default, and rely on the call cache for repeatable results. Set the thinking level from a config constant. The prompt text and schema live in versioned files under `src/prompts/`.
 - Cache every call in `cache/<video id>/`, keyed by a hash of the image, prompt version, model and schema. A rerun must never repeat a call that already succeeded.

@@ -140,7 +140,11 @@ Stage 2 also calls these functions on single pages.
 - **Cache:** `cache/<video id>/read/calls/<key>.json`, where the key is a hash of the grid PNG bytes, the prompt version, the prompt text and schema, the model ID, thinking level, `READ_MAX_TOKENS` and the attempt number. Invalid responses are cached too, so a rerun gives the same result without calling again.
 - **Cost:** token counts from each response's `usage_metadata`, with thinking tokens counted as output because they are billed as output, priced with `PRICES_USD_PER_MTOK`, logged per call in `cost.json` with whether the call was new. `main.py` prints the video's total at the end of every run, even when the read stage is skipped as up to date.
 - **Fixtures:** `--record-fixtures` copies every call the run uses to `tests/fixtures/read/<video id>/`. Re-record only on purpose, and say so in the change.
-- **Temporary model choice (from 2026-09-24):** `MODELS["read"]` is `gemini-3.5-flash` instead of `gemini-3.8-flash`, because 3.8 Flash was overloaded. It isn't a fault in our requests:
+- **Temporary model choice (from 2026-09-24):** `MODELS["read"]` and `MODELS["reread"]` are both `gemini-3.5-flash`. The intended setup is `gemini-3.8-flash` for both, with the re-read at the higher thinking level `READ_THINKING_LEVEL["reread"]`.
+  - `gemini-3.1-pro-preview`, the first choice for the re-read, has no free-tier quota: every limit is 0, and the key is on the free tier.
+  - With one model in both roles, the re-read is less independent of the first read, since a model re-reading the same crop tends to repeat its own mistakes. Correctness still holds, because a re-read verifies a note only when it agrees with the template reader. The cost falls on the flag rate.
+
+  3.8 Flash was overloaded. It isn't a fault in our requests:
   - On 2026-09-24, 3.8 Flash returned `503 UNAVAILABLE` ("This model is currently experiencing high demand") on nearly every request over several runs. Only 2 of iteration 1's 5 grids got through.
   - Even a one-line text prompt with no image, schema or thinking setting was rejected, within 0.1–1.7 s, before the model started work. 3.7 Flash failed the same way.
   - The same grid 2 request, with the same settings, succeeded on 3.7 Flash and 3.5 Flash, and every probe of 3.5 Flash succeeded.
@@ -148,33 +152,48 @@ Stage 2 also calls these functions on single pages.
 
   3.8 Flash stays the intended reader. It is newer and cheaper (0.75 / 3.75 against 1.50 / 9.00 per million tokens until 2026-12-31). No accuracy comparison was possible, since there was no ground truth yet. An automatic fallback on 503 was rejected, because it would mix models within one read.
 
-  **To switch back:** once a one-line request to `gemini-3.8-flash` succeeds several times in a row, set `MODELS["read"]` back to it. Then rerun the read stage with `--record-fixtures`, which re-reads every grid because the model is part of the cache key, and rerun `eval.py`. Record the before and after numbers, and delete this note, the comment in `config.py` and the "Temporary" line in CLAUDE.md and GEMINI.md.
+  **To switch back:** once a one-line request to `gemini-3.8-flash` succeeds several times in a row, set both `MODELS["read"]` and `MODELS["reread"]` to it. Then rerun the read stage with `--record-fixtures`, which re-reads every grid because the model is part of the cache key, and rerun `eval.py`. Record the before and after numbers, and delete this note, the comment in `config.py` and the "Temporary" line in CLAUDE.md and GEMINI.md.
 
 **Template reader** (local, no API calls).
-- For each digit 0–9, the template is the pixel-wise median of the single-digit crops the model read as that digit. Each crop is binarized and scaled to `TEMPLATE_SIZE_PX`. A template needs at least `TEMPLATE_MIN_SAMPLES` crops.
+- **Crops:** each digit box (from stage 4) is cut from the line-free mask, which is already binarized. It is fitted into a `TEMPLATE_SIZE_PX` square with its aspect ratio kept, and centred. An earlier version of this plan scaled each crop to the square, which would stretch a 6 px wide "1" into a block.
+- **Labels:** a digit box gets the model's reading when that reading has as many digits as the note has digit boxes. A two-digit reading labels its boxes by position: "12" labels the left box 1 and the right box 2. An earlier version used only single-digit notes. That fails on iteration 1, where the digits 0, 1 and 2 appear only inside 10–13 (single-digit notes cover only 3–9), so no two-digit note could ever be read.
+- For each digit 0–9, the template is the pixel-wise median of the crops labelled with it. A template needs at least `TEMPLATE_MIN_SAMPLES` crops.
 - **Leave one out:** a crop used in a template is compared against a copy of that template rebuilt without it.
-- Crops whose NCC against their own class is below `TEMPLATE_CLASS_MIN_NCC` are removed from the template and flagged. This limits how far a systematic model error can spread.
-- Each digit box is read as the best-matching template. The best match must score at least `TEMPLATE_MATCH_MIN_NCC` and beat the second best by `TEMPLATE_MARGIN_NCC`. A multi-digit note is read digit by digit.
+- Crops whose NCC against their own class is below `TEMPLATE_CLASS_MIN_NCC` are outliers. They are left out of the template, which limits how far a systematic model error can spread. They are still read, and their notes can't be verified by a template they don't match.
+- Each digit box is read as the best-matching template. The best match must score at least `TEMPLATE_MATCH_MIN_NCC` and beat the second best by `TEMPLATE_MARGIN_NCC`. A multi-digit note is read digit by digit. Its fret needs every digit read, no leading zero, and a value of at most 24.
 
 **Decision per note.**
-- **Verified:** both readers give the same fret, and the number of digits matches the digit boxes.
-- **Disagreement, or no template result:** all such notes are re-read in one grid by `MODELS["reread"]` (`gemini-3.1-pro-preview`), with the same schema, validation and cache, at thinking level `READ_THINKING_LEVEL["reread"]`. The note is verified if the re-read agrees with the template reader. Otherwise it is flagged and shows the re-read, or the template's reading if the re-read returned `null`.
-- **Model `null` and no template match:** dropped, and counted in the report as "N marks ignored".
+- **Verified** (`verified`): both readers give the same fret, and the number of digits matches the digit boxes.
+- **Disagreement, or no template result:** all such notes are re-read in one grid by `MODELS["reread"]` (`gemini-3.8-flash`, temporarily `gemini-3.5-flash`), with the same schema, validation and cache, at thinking level `READ_THINKING_LEVEL["reread"]`. The note is verified (`verified_reread`) if the re-read agrees with the template reader. Otherwise it is `flagged`, with the reason (no template reading, re-read invalid, or re-read disagrees with the template). It shows the re-read, or else the template's reading, or else the first model reading. Grids with more than `GRID_MAX_CELLS` notes are split as in the first read.
+- **Model `null` and no template match** (`ignored`): dropped, and counted in the report as "N marks ignored". This needs a valid model response. A note in a grid whose responses were all invalid is re-read instead.
 
 **Writes:** `read.json` (each reader's result, the final fret and the status of every note, and each grid's IDs, validity and errors), `cost.json` and the grid images sent to the model (`grids/grid_<role>_<n>.png`, always written, since they are the calls' inputs).
 
-**Debug overlays:** the template sheet. The grids above show each note's crop under its ID.
+**Debug overlays:** `templates.png`, one row per digit: its template, then every crop labelled with it and its leave-one-out NCC, with outliers boxed in red. `status.png`: the tab band with each note boxed in its status colour (green verified, red flagged, grey ignored) and its final fret written above it. The grids show each note's crop under its ID.
 
 ### 6. Render: `src/render.py`
-- **`tab.json`:** the video ID, the tab-area width, one canvas row (origin, extent, `s`, bar lines), and its notes (ID, string, x, fret, status, both readers' results). Every PDF and metric is computed from this file. Its schema is `src/schema/tab.schema.json`.
-- **Scale:** one factor for the whole song. The tab-area width in the video (1920 px) maps to the printable width.
-- **Rows:** the canvas is cut into PDF rows at bar lines. Each cut is at the last bar line that still fits the printable width. A single measure wider than the printable width is split at a gap between notes and flagged.
-- **Drawing** with `reportlab`: six lines, bar lines, and each number centred on its string at its x-position, over a white box that blanks out the line. Flagged numbers are red. The paper size is Letter, or A4 with `--paper a4`.
-- **Report (`report.html`):**
-  - the headline "X of Y numbers verified", numbers flagged, marks ignored and total cost
-  - every automatic decision: page times, stitch offsets and scores, and any refusal
-  - for every PDF row with a flag, the video image with its notes boxed, next to its redrawn version
+- **`tab.json`:** the video ID, the tab-area width (the crop width), one canvas row (origin, extent, `s`, line y-positions, and bar lines measured from the origin), and its notes. Each note has its ID, string, x, fret, status (`verified`, including verified after the re-read, or `flagged`), and all three readers' results (model, template, re-read). Ignored marks are left out and only counted in the report. Every PDF and metric is computed from this file. Its schema is `src/schema/tab.schema.json`.
+  - A flagged note that no reader could read has fret `null` and is drawn as a red "?". The schema allows `null` only on a flagged note, so it is never quietly dropped, and it never appears in ground truth.
+- **Scale:** one factor for the whole song, `k` = (page width − 2 × `RENDER_MARGIN_PT`) / tab-area width. The tab-area width in the video (1920 px) maps to the width inside the margins, 0.2812 pt per px on Letter. Vertical spacing isn't measured, so it is a fixed, readable `RENDER_STRING_GAP_PT`. Only the horizontal spacing must match the video.
+- **Rows:** the canvas is cut into PDF rows at bar lines, each cut at the last bar line that still fits one tab-area width.
+  - A single measure wider than that is split at the midpoint of the last gap between two notes that fits. The split is flagged: a red dashed line in the PDF, and listed in the report.
+  - The last row ends at the last bar line if that bar lies within `s` of the row's extent end, as the final double bar does (6 px before the extent end on iteration 1). This mirrors the origin snapping to a first bar line.
+- **Drawing** with `reportlab`: a title line with the video ID and "X of Y numbers verified". Then for each row: six lines, bar lines, and each number centred on its string at its x-position, over a white box that blanks out the line. Flagged numbers are red. A row that doesn't fit on the page starts a new page. The paper size is Letter, or A4 with `--paper a4`. The placement is computed by `layout()`, separately from the drawing, so tests can check every number's position.
+- **Report (`report.html`)**, one self-contained file:
+  - the headline "X of Y numbers verified", numbers flagged, marks ignored, and total model cost (at paid-tier prices)
+  - every automatic decision:
+    - ingest: video, fps, frames, crop and samples
+    - pages: time ranges, frames used, and each page's lines, `s` and bar-line count
+    - stitching: offset, overlap, NCC, runner-up and bar-line residual for each pair
+    - the canvas row: lines, `s`, extent, origin and bar lines
+    - notes: count and marks dropped by reason
+    - reading: the models, grids, template sizes and counts by status
+    - the PDF rows: their x ranges, whether each ends at a bar line or a split, and their notes and flags
+    - refusals: a refused run stops with its reason and writes no report, so a report means nothing was refused
+  - for every PDF row with a flag or a split, the video strip with its notes boxed (red flagged, green verified), stacked above the row redrawn from `tab.json` at the same pixel scale, so positions can be compared directly. Under it, a table of the flagged notes with each reader's result and the reason.
 - **Writes:** `out/<video id>.pdf` (or `-o`), and `tab.json` and `report.html` in `cache/<video id>/render/`.
+- **Debug overlay:** `cuts.png`, the tab band with each row cut marked, green at a bar line and red at a split.
+- **Refuses:** a video where every mark was ignored, so there is nothing to draw.
 
 ## Configuration: `src/config.py`
 
@@ -215,13 +234,16 @@ All thresholds are named constants with their unit in the name: `_S` is seconds,
 | `READ_MAX_TOKENS` / `READ_MAX_ATTEMPTS` | 16000 / 2 | `max_output_tokens` per call / calls per grid |
 | `TEMPLATE_SIZE_PX` / `TEMPLATE_MIN_SAMPLES` | 32 / 3 | |
 | `TEMPLATE_CLASS_MIN_NCC` / `TEMPLATE_MATCH_MIN_NCC` / `TEMPLATE_MARGIN_NCC` | 0.8 / 0.85 / 0.05 | |
+| `RENDER_MARGIN_PT` / `RENDER_STRING_GAP_PT` / `RENDER_ROW_GAP_PT` | 36 / 7 / 22 | page margin / between drawn strings / between PDF rows |
+| `RENDER_FRET_FONT_PT` / `RENDER_TITLE_FONT_PT` / `RENDER_LINE_WIDTH_PT` | 6.5 / 10 / 0.4 | |
+| `REPORT_PAD_FRAC` | 2.0 | of `s`, above and below the tab band in report images |
 | `MATCH_X_TOL_FRAC` | 0.01 | of tab-area width (eval matching) |
 | `EVAL_MIN_*` / `EVAL_MAX_*` | see Evaluation | the pass-bar targets |
 | `REVIEW_*` | | layout of the review images (string gap, margins, font scales) |
-| `MODELS` | `{"read": "gemini-3.8-flash", "reread": "gemini-3.1-pro-preview"}`, with `read` temporarily `gemini-3.5-flash` | the only place model IDs appear |
+| `MODELS` | `{"read": "gemini-3.8-flash", "reread": "gemini-3.8-flash"}`, both temporarily `gemini-3.5-flash` | the only place model IDs appear |
 | `READ_THINKING_LEVEL` | `{"read": "MEDIUM", "reread": "HIGH"}` | Gemini `thinking_level` |
 | `API_RETRY_ATTEMPTS` / `API_RETRY_INITIAL_DELAY_S` | 5 / 15 | tries per call, the first included / s before the first retry, doubling to at most 60 |
-| `PRICES_USD_PER_MTOK` | 3.8 Flash: 0.75 in / 3.75 out (to 2026-12-31, then 1.50 / 7.50); 3.5 Flash: 1.50 / 9.00; 3.1 Pro preview: 2 in / 12 out | output includes thinking |
+| `PRICES_USD_PER_MTOK` | 3.8 Flash: 0.75 in / 3.75 out (to 2026-12-31, then 1.50 / 7.50); 3.5 Flash: 1.50 / 9.00 | output includes thinking |
 
 ## Evaluation: `eval.py`
 
@@ -270,8 +292,18 @@ Each step ends with its checkpoint met and its unit tests passing.
    - Measured with `gemini-3.5-flash` at thinking level MEDIUM (see "Temporary model choice" in stage 5): 5 calls, each valid on the first attempt. 163 notes read as 163 numbers, 0 as "not a number". 7,317 input and 5,314 output tokens (thinking included), $0.0588 at paid-tier prices, and $0 on the free tier the key is on. A second run, made with no API key set so that any call would have failed, made 0 new calls and printed the cost. The 5 responses are recorded in `tests/fixtures/read/mhmDGhkUZt4/`. All 163 readings match a check by eye against the grid images. This is a spot check, not verification. `gemini-3.8-flash` read the first 2 grids before it became unavailable and agreed with 3.5 Flash on all 66 notes. The 5 grids for iteration 1 (33, 33, 33, 32 and 32 notes, 744–792 × 400–500 px) were checked by eye: each crop is framed under its ID, with only cut-off pieces of neighbouring strings' numbers at the frame edges. The reader was first built for Claude, then switched to the Gemini API on 2026-09-24 before any call was made. Schema v1 was changed in place to use `minimum` and `maximum` for the fret range, since Gemini supports them and no response had been recorded with the old schema. At 3.8 Flash's prices, 5 calls should cost a few cents. Each image is about 750 × 450 px, and thinking is billed as output.
 10. **Template reader and decision,** including the re-read by `MODELS["reread"]`.
     - Checkpoint: the template sheet looks right, and every note has a status.
+    - Measured, with the re-read by `gemini-3.5-flash` at HIGH (see "Temporary model choice"):
+      - Templates for all 10 digits, from 196 labelled digit crops, 9 of them outliers.
+      - The template sheet looks right: every crop is the digit it is labelled as, and the 9 outliers are that digit too, mostly with a notch where clearing a string line cut through it.
+      - Every note has a status: 112 verified by the two readers, 0 disagreements, 0 ignored, and **51 flagged, all for "no template reading"**. The re-read (2 grids of 26 and 25 notes) agreed with the first read on all 51, but it can verify a note only by agreeing with a template reading, and those notes have none.
+      - Cost: 2 new calls, $0.0186 at paid prices; $0.0774 for the video in all. A rerun with no key made 0 calls. The 2 re-read responses are recorded in `tests/fixtures/read/mhmDGhkUZt4/`.
+    - **Open for step 13:** a 31% flag rate against the 5% target. For the 51 notes, the best match is the model's digit, but it scores 0.75–0.85, under `TEMPLATE_MATCH_MIN_NCC` = 0.85. The margin over the second-best digit is still at least 0.063, and at least 0.106 for 95% of digits. Class NCCs have a median of 0.88–0.93: at about 14 × 8 px, a binarized digit loses a lot from a 1 px offset or a notch cut by line clearing. The candidates are to lower `TEMPLATE_MATCH_MIN_NCC`, to lean on the margin, or to match grayscale canvas crops with a ±1 px shift search. Each must be measured against the ground truth from step 12, as the evaluation rules require.
 11. **Render and report.**
     - Checkpoint: the PDF rows start at bar lines, the numbers sit on the right lines, and the report lists the stitch decisions.
+    - Measured:
+      - One Letter page with 3 rows: canvas x 0–1778, 1778–3674 and 3674–5012.5 from the origin, holding 57, 61 and 45 notes. Each row starts at a bar line, the last ends at the final double bar, and no measure is split.
+      - The PDF, rendered to an image, shows every number centred on its string, with the 51 flagged numbers in red. The first chord, 8 9 8 10 8 on strings 1–5, matches the video.
+      - The report lists the pages, both stitch decisions (offsets 1692 and 1618, NCC 0.851 and 0.857, runner-ups, residuals) and every other decision. It has 3 row images, since every row has a flag. In the first, each redrawn number sits under its note in the video strip, on the same string.
 12. **Ground truth:** `eval.py --review`, then correct and confirm `tests/truth/mhmDGhkUZt4.json`.
 13. **Measure and tune** until the pass bar is met. Any change to a prompt, model or threshold is recorded with its before and after numbers.
 14. **Record:** SUPPORTED_VIDEOS.md, the Iterations table, and this plan brought in line with the code.
@@ -298,8 +330,18 @@ Tests use synthetic images and never call the API. Model responses come from rec
   - A blocked prompt and every finish reason other than `STOP` are rejected, and thought parts are never read as the answer.
   - The cache key changes with the image, prompt version, prompt text, schema, model, thinking level or attempt.
   - The stage reads every note, a second run makes no calls, an invalid response is requested once more, and a grid that fails twice leaves its notes unread.
-  - The template reader uses leave one out.
-- **Render:** a canvas x maps to a PDF x by the one scale factor, and rows are cut at bar lines.
+  - The template reader uses leave one out, and a mislabelled crop becomes an outlier that the template reader reads as its true digit.
+  - Digit crops keep their aspect ratio. Two-digit readings label their boxes by position, and a reading whose digit count doesn't match the boxes labels nothing.
+  - A class with fewer than `TEMPLATE_MIN_SAMPLES` crops has no template. A note reading with a leading zero or over 24 is no reading.
+  - Every branch of the first and final decisions. On a synthetic row, a model error is caught by the template reader and settled by the re-read: verified if the re-read agrees with the template, flagged if it doesn't.
+- **Render:**
+  - A canvas x maps to a PDF x by the one scale factor, on Letter and A4, in every row.
+  - Every number is placed on its own string's line at its scaled x.
+  - Rows are cut at the last bar line that fits, and a measure wider than a row is split between notes.
+  - The last row ends at a final bar near the extent end.
+  - Rows that don't fit start a new page.
+  - `tab.json` maps statuses, keeps every reader's result, leaves out ignored marks, and passes the schema. The schema allows a null fret only on a flagged note.
+  - The stage writes the PDF, `tab.json`, a report that lists the stitch decision and has one image per flagged row, and `cuts.png`.
 - **Eval:** matching and metrics on constructed cases.
 
 ## Project layout
